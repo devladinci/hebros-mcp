@@ -108,7 +108,9 @@ const TOOLS: ToolDef[] = [
         {
           title: 'Get symbol references',
           description:
-            'Where a symbol is used: JSX component usages, call sites (with line numbers) and which files import it by name. ' +
+            'Where a symbol is used: JSX component usages, call sites (with line numbers), which files import it by name, ' +
+            'and where the name is written without being called — string keys, object keys, property reads ' +
+            '(how registries, event names and route tables wire things together). ' +
             'Use instead of grep-ing for usages. Heuristic — for a common name, narrow with file.',
           inputSchema: {
             name: z.string().describe('Symbol name (function/class/method/component as written at usage sites).'),

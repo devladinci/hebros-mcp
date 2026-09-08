@@ -1,6 +1,6 @@
 import type { Node as TSNode, Tree } from 'web-tree-sitter';
 import { isCodeFile } from './fsutil.js';
-import type { CallRow, ImportRow, SymbolKind, SymbolRow } from './types.js';
+import type { CallRow, ImportRow, NameUseRow, SymbolKind, SymbolRow } from './types.js';
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */
@@ -70,6 +70,10 @@ function importClauseNames(stmt: TSNode): string[] {
 
 const stripQuotes = (s: string): string => s.replace(/^['"]|['"]$/g, '');
 
+/** A literal is worth indexing when it reads like an identifier or a path, not prose. */
+const KEY_LIKE = /^[A-Za-z_$/][A-Za-z0-9_$.:/-]*$/;
+const MAX_NAME_USE = 64;
+
 /* ------------------------------------------------------------------ */
 /* analyzer                                                            */
 /* ------------------------------------------------------------------ */
@@ -78,6 +82,7 @@ export interface AnalyzeResult {
   symbols: SymbolRow[];
   imports: ImportRow[];
   calls: CallRow[];
+  nameUses: NameUseRow[];
 }
 
 interface Container {
@@ -94,6 +99,7 @@ export function analyze(relPath: string, tree: Tree): AnalyzeResult {
   const symbols: SymbolRow[] = [];
   const imports: ImportRow[] = [];
   const calls: CallRow[] = [];
+  const nameUses: NameUseRow[] = [];
 
   const exportedNames = new Set<string>();
   const defaultNames = new Set<string>();
@@ -230,6 +236,21 @@ export function analyze(relPath: string, tree: Tree): AnalyzeResult {
       container,
       kind: node.type === 'new_expression' ? 'new' : callee.type === 'member_expression' ? 'method' : 'call',
     });
+  };
+
+  /**
+   * Record a string literal when it reads like a key rather than prose, so
+   * name-string wiring (tool registries, event names, routes) is findable.
+   * Module specifiers are skipped — imports already index those.
+   */
+  const recordName = (node: TSNode, kind: NameUseRow['kind'], container: string | null): void => {
+    if (kind === 'string') {
+      const parent = node.parent?.type;
+      if (parent === 'import_statement' || parent === 'export_statement') return; // imports index these
+    }
+    const name = node.text.replace(/^[`'\"]|[`'\"]$/g, '');
+    if (!name || name.length > MAX_NAME_USE || !KEY_LIKE.test(name)) return;
+    nameUses.push({ file: relPath, line: lineOf(node), name, kind, container });
   };
 
   const staticOf = (node: TSNode): boolean => node.children.some((c) => c.type === 'static');
@@ -402,6 +423,39 @@ export function analyze(relPath: string, tree: Tree): AnalyzeResult {
         return;
       }
 
+      /* ---- string literals that look like keys ---- */
+      case 'string':
+      case 'template_string': {
+        recordName(node, 'string', container?.name ?? null);
+        return;
+      }
+
+      /* ---- `name: value` in an object literal — how registries are keyed ---- */
+      case 'pair': {
+        const key = node.childForFieldName('key');
+        if (key) recordName(key, 'key', container?.name ?? null);
+        const value = node.childForFieldName('value');
+        if (value) visit(value, container); // key already recorded; don't double-count it
+        return;
+      }
+
+      /* ---- `TOOL_ICONS.computer_observe` — a name read, not called ---- */
+      case 'member_expression': {
+        // `arr.map(...)` is already a call row; recording the property too would
+        // double-count every method call and bury real reads under `.length`
+        const parent = node.parent;
+        const isCallee =
+          (parent?.type === 'call_expression' && parent.childForFieldName('function')?.id === node.id) ||
+          (parent?.type === 'new_expression' && parent.childForFieldName('constructor')?.id === node.id);
+        if (!isCallee) {
+          const prop = node.childForFieldName('property');
+          if (prop) recordName(prop, 'property', container?.name ?? null);
+        }
+        const obj = node.childForFieldName('object');
+        if (obj) visit(obj, container);
+        return;
+      }
+
       /* ---- containers without symbols: keep walking ---- */
       default: {
         for (const c of node.namedChildren) visit(c, container);
@@ -411,7 +465,7 @@ export function analyze(relPath: string, tree: Tree): AnalyzeResult {
 
   for (const stmt of tree.rootNode.namedChildren) visit(stmt, null);
 
-  return { symbols, imports, calls };
+  return { symbols, imports, calls, nameUses };
 }
 
 export function detectLang(relPath: string): 'ts' | 'tsx' | null {

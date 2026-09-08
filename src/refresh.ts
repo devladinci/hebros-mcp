@@ -120,6 +120,7 @@ export async function refreshIndex(
   const symbols = existing.symbols.filter((s) => keep(s.file));
   const imports = existing.imports.filter((i) => keep(i.file));
   const calls = existing.calls.filter((c) => keep(c.file));
+  const nameUses = (existing.nameUses ?? []).filter((u) => keep(u.file));
 
   let parsed = 0;
   for (const f of dirty) {
@@ -141,6 +142,7 @@ export async function refreshIndex(
     symbols.push(...res.symbols);
     imports.push(...res.imports);
     calls.push(...res.calls);
+    nameUses.push(...res.nameUses);
     filesMeta[f] = { loc: code.split('\n').length, bytes: Buffer.byteLength(code) };
     parsed++;
   }
@@ -157,6 +159,7 @@ export async function refreshIndex(
     symbols,
     imports,
     calls,
+    nameUses,
   };
   saveIndex(root, data);
   return { data, rebuilt: false, note: `${parsed} file(s) re-parsed, ${removed.size} removed` };

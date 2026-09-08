@@ -7,7 +7,7 @@ The README sells the tool; this file records how it works and why.
 ```
 scan (git ls-files / fs walk, ignored dirs filtered)
   → parse (tree-sitter grammars via web-tree-sitter, WASM, vendored binaries)
-  → analyze (symbols / imports / calls per file)
+  → analyze (symbols / imports / calls / name uses per file)
   → resolve (import specifiers → repo files or npm:<pkg>)
   → index (one JSON document, atomic write)
 ```
@@ -30,7 +30,8 @@ into the low thousands of files; revisit (binary format / SQLite) beyond that.
                  "line": 292, "endLine": 292, "sig": "export function buildEdges(...)",
                  "exported": 1, "isDefault": 0, "isStatic": 0, "container": null } ],
   "imports": [ { "file": "src/foo.ts", "source": "./bar.js", "names": ["x"], "line": 3, "kind": "import" } ],
-  "calls":   [ { "file": "src/foo.ts", "line": 106, "callee": "resolveImport", "container": "buildEdges", "kind": "call" } ]
+  "calls":   [ { "file": "src/foo.ts", "line": 106, "callee": "resolveImport", "container": "buildEdges", "kind": "call" } ],
+  "nameUses":[ { "file": "src/reg.ts", "line": 24, "name": "computer_observe", "kind": "key", "container": null } ]
 }
 ```
 
@@ -95,7 +96,19 @@ Two-pass tree-sitter walk per file:
 1. top-level export statements → exported-name set, default flag, re-export imports;
 2. full walk → symbols (top-level + class/interface members + enum members),
    call rows (calls, `new`, dotted method calls, JSX component usages),
-   dynamic imports recorded as import rows.
+   dynamic imports recorded as import rows, and name-use rows.
+
+Name-use rows cover the places a name is written but never called: a key-like
+string literal, an object key, a property read. That is how registries, event
+names and route tables are wired, and callee matching cannot see any of it — a
+dispatcher keyed by `"computer_observe"` used to return nothing but the import.
+A name is recorded only when it reads like an identifier or a path (no spaces,
+64 chars max), so prose stays out; module specifiers are skipped because
+imports already index them, and a method call's callee is skipped because the
+call row already has it — without that, every `arr.map()` would be stored twice
+and real reads would sit under thousands of `.length` rows.
+
+Cost on a 258-file monorepo: index 1.70 MB → 2.77 MB, 12.8k name-use rows.
 
 Nested function declarations are not symbols (they'd flood the map) but their
 bodies are walked so call rows survive. Anonymous default exports
