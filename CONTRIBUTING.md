@@ -17,13 +17,15 @@ npm run bench -- /path/to/any/ts-repo # timings
 Tests build throwaway git repos in the temp dir and use an isolated
 `HEBROS_CACHE` — they never touch `~/.cache` or any real repo.
 
-> **Node 23 hangs the suite.** On Node v23.11.1, the integration tests deadlock
-> inside V8 (a maglev compilation job parked in `CollectionBarrier::AwaitCollectionBackground`
-> while the main thread sits idle in the event loop) — `npm test` never exits and
-> prints nothing. It is a V8 bug, not a Hebros one. Use a Node LTS (22 or 24), or
-> run `node --no-maglev --test dist/scripts/test/*.test.js` to work around it.
-> This also blocks `prepublishOnly`, so publish from an LTS release. Bump
-`SCHEMA_VERSION` in `src/types.ts` whenever the index row shape changes;
+> **Why `npm test` passes `--no-maglev`.** On Node v23.11.1 the suite deadlocks
+> inside V8 — a maglev compilation job parks on the GC collection barrier while
+> the main thread sits idle — and the run hangs forever, printing nothing. It is
+> a V8 bug, not a Hebros one, but a silent infinite hang is a miserable way to
+> meet it, and it stalls `prepublishOnly` at release time too. The flag turns off
+> that compiler tier and changes nothing about what the tests check. Drop it once
+> the affected Node releases are behind us.
+
+Bump `SCHEMA_VERSION` in `src/types.ts` whenever the index row shape changes;
 `loadIndex` discards older caches automatically.
 
 `npm run smoke` builds an index, runs an incremental refresh, and exercises the

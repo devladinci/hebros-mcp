@@ -13,9 +13,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        # LTS lines only. Node 23 is skipped on purpose: v23.11.1 deadlocks
-        # inside V8 (a maglev compile job parked on the GC collection barrier)
-        # and the suite hangs forever. See CONTRIBUTING.md.
+        # LTS lines only. (Node 23 deadlocks inside V8 on this workload; the
+        # test script passes --no-maglev so it no longer hangs there either.)
         node: ['22', '24']
     steps:
       - uses: actions/checkout@v5

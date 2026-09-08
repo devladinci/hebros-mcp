@@ -18,7 +18,7 @@
     "smoke": "node dist/scripts/smoke.js",
     "index": "node bin/hebros.js index",
     "serve": "node bin/hebros.js serve",
-    "test": "tsc -p . && node --test dist/scripts/test/*.test.js",
+    "test": "tsc -p . && node --no-maglev --test dist/scripts/test/*.test.js",
     "bench": "node dist/scripts/bench.js"
   },
   "dependencies": {
