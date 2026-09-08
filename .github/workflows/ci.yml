@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # LTS lines only. Node 23 is skipped on purpose: v23.11.1 deadlocks
+        # inside V8 (a maglev compile job parked on the GC collection barrier)
+        # and the suite hangs forever. See CONTRIBUTING.md.
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      # `npm test` type-checks (tsc -p .) and then runs the suite.
+      - run: npm test
+
+  package:
+    name: package installs and serves
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # Pack, install the tarball into a clean project, and check the binary
+      # starts and lists its tools — catches a broken `files` list or a
+      # missing vendored grammar, which the unit tests cannot see.
+      - name: pack and install
+        run: |
+          npm pack --pack-destination /tmp
+          mkdir /tmp/consumer && cd /tmp/consumer
+          npm init -y >/dev/null
+          npm install /tmp/hebros-*.tgz
+          req='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'
+          out=$(echo "$req" | timeout 60 ./node_modules/.bin/hebros --root "$GITHUB_WORKSPACE" 2>/dev/null | head -c 400)
+          echo "$out"
+          echo "$out" | grep -q '"name":"hebros"' || { echo "::error::installed server did not answer initialize"; exit 1; }
