@@ -43,6 +43,20 @@ export interface CallRow {
   kind: 'call' | 'new' | 'method' | 'jsx';
 }
 
+/**
+ * A place where a name is written but never called: a key-like string literal
+ * ("computer_observe"), an object key (`computer_observe: Camera`) or a property
+ * access (`TOOL_ICONS.computer_observe`). This is how registries, event names
+ * and route tables wire things together, and callee matching cannot see it.
+ */
+export interface NameUseRow {
+  file: string;
+  line: number;
+  name: string; // literal contents / key / property, quotes stripped
+  kind: 'string' | 'key' | 'property';
+  container: string | null; // enclosing function/method
+}
+
 export interface IndexMeta {
   root: string; // realpath of the indexed repo
   builtAt: string; // ISO timestamp
@@ -58,10 +72,11 @@ export interface IndexData {
   symbols: SymbolRow[];
   imports: ImportRow[]; // raw, unresolved specifiers
   calls: CallRow[];
+  nameUses: NameUseRow[];
 }
 
 /** Current index schema; older cached indexes are discarded and rebuilt. */
-export const SCHEMA_VERSION = 3; // v3: CallRow.kind 'jsx', alias scopes per tsconfig dir
+export const SCHEMA_VERSION = 4; // v4: name uses indexed (strings, object keys, property access)
 
 /** Import edge with the module specifier resolved to a real file/dir/npm package. */
 export interface Edge {

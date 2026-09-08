@@ -245,3 +245,56 @@ describe('analyze: tsx', () => {
     assert.ok(!calls.some((c) => c.callee === 'span'), 'lowercase host elements are not components');
   });
 });
+describe('analyze: name uses', () => {
+  const root = makeRepo(standardFiles());
+
+  it('records key-like literals with their line and container', async () => {
+    write(
+      root,
+      'src/registry.ts',
+      [
+        'import { handler } from "./handler.js";',
+        'export function register() {',
+        '  const table = { "computer_observe": handler };',
+        '  return table["computer_observe"];',
+        '}',
+      ].join('\n'),
+    );
+    const { nameUses } = await analyzeFile(root, 'src/registry.ts');
+    const hits = nameUses.filter((u) => u.name === 'computer_observe');
+    assert.equal(hits.length, 2, 'both the registry key and the lookup are recorded');
+    assert.deepEqual(
+      hits.map((h) => [h.line, h.kind]),
+      [
+        [3, 'key'], // "computer_observe": handler
+        [4, 'string'], // table["computer_observe"]
+      ],
+    );
+    assert.equal(hits[0]!.container, 'register');
+  });
+
+  it('skips module specifiers — imports already index those', async () => {
+    write(root, 'src/imp.ts', 'import { x } from "./other.js";\nexport const y = x;\n');
+    const { nameUses } = await analyzeFile(root, 'src/imp.ts');
+    assert.equal(
+      nameUses.find((u) => u.name === './other.js'),
+      undefined,
+    );
+  });
+
+  it('skips prose and anything too long to be a key', async () => {
+    write(
+      root,
+      'src/prose.ts',
+      ['export const msg = "could not reach the server";', `export const big = "${'x'.repeat(80)}";`].join('\n'),
+    );
+    const { nameUses } = await analyzeFile(root, 'src/prose.ts');
+    assert.equal(nameUses.filter((u) => u.kind === 'string').length, 0, 'a sentence and an over-long literal are both ignored');
+  });
+
+  it('keeps paths and dotted event names', async () => {
+    write(root, 'src/routes.ts', 'export const r = ["/api/users", "user.created"];\n');
+    const { nameUses } = await analyzeFile(root, 'src/routes.ts');
+    assert.deepEqual(nameUses.filter((u) => u.kind === 'string').map((u) => u.name).sort(), ['/api/users', 'user.created']);
+  });
+});

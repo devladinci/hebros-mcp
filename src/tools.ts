@@ -423,6 +423,9 @@ export function getReferences(ctx: Ctx, name: string, file?: string): string {
   const importHits = ctx.edges.filter(
     (e) => e.names.includes(name) && (!f || e.from === f) && !e.to.startsWith('npm:') && !e.to.startsWith('(unresolved'),
   );
+  // wiring by name string ("computer_observe" in a registry, an event name, a
+  // route) is invisible to callee matching — surface it as its own section
+  const useHits = (ctx.data.nameUses ?? []).filter((u) => u.name === name && (!f || u.file === f));
 
   // group per file with a per-file site cap — a hot hook called 80 times must
   // not print 80 nearly identical lines
@@ -452,6 +455,20 @@ export function getReferences(ctx: Ctx, name: string, file?: string): string {
   }
   if (importHits.length > importCap) lines.push(`  …(+${importHits.length - importCap} more — restrict with file)`);
   if (!importHits.length) lines.push('  (none)');
+
+  // name written but not called: string keys, object keys, property reads
+  const byUseFile = new Map<string, string[]>();
+  for (const u of useHits) {
+    const g = byUseFile.get(u.file) ?? [];
+    g.push(`L${u.line}${u.kind === 'string' ? ' "…"' : u.kind === 'key' ? ' key' : ' .prop'}`);
+    byUseFile.set(u.file, g);
+  }
+  lines.push(`name used without a call (${useHits.length} in ${byUseFile.size} file(s)):`);
+  for (const [file, ls] of [...byUseFile.entries()].slice(0, callCap)) {
+    lines.push(`  ${file}: ${ls.slice(0, 5).join(', ')}${ls.length > 5 ? ` …(+${ls.length - 5} more)` : ''}`);
+  }
+  if (byUseFile.size > callCap) lines.push(`  …(+${byUseFile.size - callCap} more files — restrict with file)`);
+  if (!useHits.length) lines.push('  (none)');
   return lines.join('\n');
 }
 

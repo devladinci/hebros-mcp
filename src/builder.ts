@@ -22,6 +22,7 @@ export async function buildIndex(root: string): Promise<BuildResult> {
   const symbols: IndexData['symbols'] = [];
   const imports: IndexData['imports'] = [];
   const calls: IndexData['calls'] = [];
+  const nameUses: IndexData['nameUses'] = [];
   const filesMeta: IndexData['files'] = {};
 
   for (const f of files) {
@@ -39,6 +40,7 @@ export async function buildIndex(root: string): Promise<BuildResult> {
     symbols.push(...res.symbols);
     imports.push(...res.imports);
     calls.push(...res.calls);
+    nameUses.push(...res.nameUses);
     filesMeta[f] = { loc: code.split('\n').length, bytes: Buffer.byteLength(code) };
   }
 
@@ -54,6 +56,7 @@ export async function buildIndex(root: string): Promise<BuildResult> {
     symbols,
     imports,
     calls,
+    nameUses,
   };
   saveIndex(realpath, data);
   return { data, files: files.length };

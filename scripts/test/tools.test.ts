@@ -23,6 +23,12 @@ const CALLS: IndexData['calls'] = [
   { file: 'src/b.ts', line: 8, callee: 'console.log', container: 'beta', kind: 'method' },
 ];
 
+const NAME_USES: IndexData['nameUses'] = [
+  { file: 'src/b.ts', line: 12, name: 'alpha', kind: 'string', container: 'beta' },
+  { file: 'src/b.ts', line: 13, name: 'alpha', kind: 'key', container: null },
+  { file: 'src/a.ts', line: 3, name: 'alpha', kind: 'property', container: null },
+];
+
 // Edges resolve against a real filesystem, so synthetic Ctx data needs a real
 // fixture repo containing the files referenced by IMPORTS/SYMBOLS.
 const fixtureRoot = makeRepo({
@@ -39,6 +45,7 @@ function ctxWithData(files: Record<string, { loc: number; bytes: number }>): Ctx
     symbols: SYMBOLS,
     imports: IMPORTS,
     calls: CALLS,
+    nameUses: NAME_USES,
   });
 }
 
@@ -91,6 +98,7 @@ describe('getMap: directory mode', () => {
       ],
       imports: [],
       calls: [],
+      nameUses: [],
     });
     const out = getMap(ctx, '.');
     assert.match(out, /class K/);
@@ -185,10 +193,31 @@ describe('getReferences', () => {
       symbols: [],
       imports: [],
       calls: Array.from({ length: 80 }, (_, i) => ({ file: 'src/a.ts', line: i + 2, callee: 'useState', container: `c${i}`, kind: 'call' as const })),
+      nameUses: [],
     };
     const out = getReferences(new Ctx(fixtureRoot, data), 'useState');
     assert.match(out, /80 in 1 file\(s\)/);
     assert.equal((out.match(/-> useState/g) ?? []).length, 5, 'only 5 sample lines per file');
     assert.match(out, /\(\+75 more in this file\)/);
+  });
+});
+
+describe('get_references: names used without a call', () => {
+  it('reports uses that callee matching cannot see', () => {
+    const out = getReferences(ctxWithData({ 'src/a.ts': { loc: 20, bytes: 400 } }), 'alpha');
+    assert.match(out, /name used without a call \(3 in 2 file\(s\)\)/);
+    assert.match(out, /src\/b\.ts: L12 "…", L13 key/);
+    assert.match(out, /src\/a\.ts: L3 \.prop/);
+  });
+
+  it('honours the file filter', () => {
+    const out = getReferences(ctxWithData({ 'src/a.ts': { loc: 20, bytes: 400 } }), 'alpha', 'src/a.ts');
+    assert.match(out, /name used without a call \(1 in 1 file\(s\)\)/);
+    assert.doesNotMatch(out, /src\/b\.ts: L12/);
+  });
+
+  it('says none when a name never appears as a literal', () => {
+    const out = getReferences(ctxWithData({ 'src/a.ts': { loc: 20, bytes: 400 } }), 'console.log');
+    assert.match(out, /name used without a call \(0 in 0 file\(s\)\):\n  \(none\)/);
   });
 });
